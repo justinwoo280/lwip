@@ -418,7 +418,8 @@ tcp_write(struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags)
   LWIP_ERROR("tcp_write: invalid pcb", pcb != NULL, return ERR_ARG);
 
   /* don't allocate segments bigger than half the maximum window we ever received */
-  mss_local = LWIP_MIN(pcb->mss, TCPWND_MIN16(pcb->snd_wnd_max / 2));
+  mss_local = pcb->gso_max_size ? pcb->gso_max_size : pcb->mss;
+  mss_local = LWIP_MIN(mss_local, TCPWND_MIN16(pcb->snd_wnd_max / 2));
   mss_local = mss_local ? mss_local : pcb->mss;
   /* GSO is off for a while, queue wire-sized segments. */
   if (pcb->gso_off_timer > 0) {
@@ -878,7 +879,7 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
     return ERR_OK;
   }
 
-  LWIP_ASSERT("split <= mss", split <= pcb->mss);
+  LWIP_ASSERT("split <= segment limit", split <= pcb->mss || split <= pcb->gso_max_size);
   LWIP_ASSERT("useg->len > 0", useg->len > 0);
 
   /* We should check that we don't exceed TCP_SND_QUEUELEN but we need

@@ -297,6 +297,7 @@ struct tcp_pcb {
 
   u16_t mss;   /* maximum segment size */
   u16_t gso_mss; /* segmentation size of outgoing GSO packets (0: none) */
+  u16_t gso_max_size; /* aggregate payload limit; mss remains the wire MSS */
   u8_t gso_off_timer; /* slow timer ticks GSO stays off after a failure */
   u8_t gso_off_count; /* GSO failures in a row, doubles the time it stays off */
 

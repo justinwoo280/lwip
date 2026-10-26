@@ -1281,7 +1281,8 @@ ip6_output_if_src(struct pbuf *p, const ip6_addr_t *src, const ip6_addr_t *dest,
 #endif /* ENABLE_LOOPBACK */
 #if LWIP_IPV6_FRAG
   /* don't fragment if interface has mtu set to 0 [loopif] */
-  if (netif_mtu6(netif) && (p->tot_len > nd6_get_destination_mtu(dest, netif))) {
+  /* A GSO pbuf is segmented by the output device, not by IP fragmentation. */
+  if (!p->gso_size && netif_mtu6(netif) && (p->tot_len > nd6_get_destination_mtu(dest, netif))) {
     return ip6_frag(p, netif, dest);
   }
 #endif /* LWIP_IPV6_FRAG */

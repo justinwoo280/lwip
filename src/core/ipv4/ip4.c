@@ -1035,7 +1035,8 @@ ip4_output_if_opt_src(struct pbuf *p, const ip4_addr_t *src, const ip4_addr_t *d
 #endif /* ENABLE_LOOPBACK */
 #if IP_FRAG
   /* don't fragment if interface has mtu set to 0 [loopif] */
-  if (netif->mtu && (p->tot_len > netif->mtu)) {
+  /* A GSO pbuf is segmented by the output device, not by IP fragmentation. */
+  if (!p->gso_size && netif->mtu && (p->tot_len > netif->mtu)) {
     return ip4_frag(p, netif, dest);
   }
 #endif /* IP_FRAG */
