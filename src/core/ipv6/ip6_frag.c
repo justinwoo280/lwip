@@ -166,6 +166,20 @@ ip6_reass_fini(void)
  *
  * @param ipr datagram to free
  */
+void
+ip6_reass_remove_netif(struct netif *netif)
+{
+  struct ip6_reassdata *r = reassdatagrams;
+  while (r != NULL) {
+    struct ip6_reassdata *next = r->next;
+    if (r->input == netif) {
+      r->input = NULL;
+      ip6_reass_free_complete_datagram(r);
+    }
+    r = next;
+  }
+}
+
 static void
 ip6_reass_free_complete_datagram(struct ip6_reassdata *ipr)
 {
@@ -177,7 +191,7 @@ ip6_reass_free_complete_datagram(struct ip6_reassdata *ipr)
 
 #if LWIP_ICMP6
   iprh = (struct ip6_reass_helper *)ipr->p->payload;
-  if (iprh->start == 0) {
+  if (iprh->start == 0 && ipr->input != NULL) {
     /* The first fragment was received, send ICMP time exceeded. */
     /* First, de-queue the first pbuf from r->p. */
     p = ipr->p;
@@ -341,7 +355,8 @@ ip6_reass(struct pbuf *p)
     /* Check if the incoming fragment matches the one currently present
        in the reassembly buffer. If so, we proceed with copying the
        fragment into the buffer. */
-    if ((frag_hdr->_identification == ipr->identification) &&
+    if ((ipr->input == ip_current_input_netif()) &&
+        (frag_hdr->_identification == ipr->identification) &&
         ip6_addr_packed_eq(ip6_current_src_addr(), &(IPV6_FRAG_SRC(ipr)), ipr->src_zone) &&
         ip6_addr_packed_eq(ip6_current_dest_addr(), &(IPV6_FRAG_DEST(ipr)), ipr->dest_zone)) {
       IP6_FRAG_STATS_INC(ip6_frag.cachehit);
@@ -374,6 +389,7 @@ ip6_reass(struct pbuf *p)
     }
 
     memset(ipr, 0, sizeof(struct ip6_reassdata));
+    ipr->input = ip_current_input_netif();
     ipr->timer = IPV6_REASS_MAXAGE;
 
     /* enqueue the new structure to the front of the list */

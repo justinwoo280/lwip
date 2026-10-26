@@ -198,7 +198,7 @@ ip_reass_free_complete_datagram(struct ip_reassdata *ipr, struct ip_reassdata *p
   MIB2_STATS_INC(mib2.ipreasmfails);
 #if LWIP_ICMP
   iprh = (struct ip_reass_helper *)ipr->p->payload;
-  if (iprh->start == 0) {
+  if (iprh->start == 0 && ipr->input != NULL) {
     /* The first fragment was received, send ICMP time exceeded. */
     /* First, de-queue the first pbuf from r->p. */
     p = ipr->p;
@@ -233,6 +233,22 @@ ip_reass_free_complete_datagram(struct ip_reassdata *ipr, struct ip_reassdata *p
   ip_reass_pbufcount = (u16_t)(ip_reass_pbufcount - pbufs_freed);
 
   return pbufs_freed;
+}
+
+void
+ip_reass_remove_netif(struct netif *netif)
+{
+  struct ip_reassdata *r = reassdatagrams, *prev = NULL;
+  while (r != NULL) {
+    struct ip_reassdata *next = r->next;
+    if (r->input == netif) {
+      r->input = NULL; /* Interface teardown must not send ICMP. */
+      ip_reass_free_complete_datagram(r, prev);
+    } else {
+      prev = r;
+    }
+    r = next;
+  }
 }
 
 #if IP_REASS_FREE_OLDEST
@@ -297,7 +313,7 @@ ip_reass_remove_oldest_datagram(struct ip_hdr *fraghdr, int pbufs_needed)
  * @return A pointer to the queue location into which the fragment was enqueued
  */
 static struct ip_reassdata *
-ip_reass_enqueue_new_datagram(struct ip_hdr *fraghdr, int clen)
+ip_reass_enqueue_new_datagram(struct ip_hdr *fraghdr, int clen, struct netif *input)
 {
   struct ip_reassdata *ipr;
 #if ! IP_REASS_FREE_OLDEST
@@ -320,6 +336,7 @@ ip_reass_enqueue_new_datagram(struct ip_hdr *fraghdr, int clen)
     }
   }
   memset(ipr, 0, sizeof(struct ip_reassdata));
+  ipr->input = input;
   ipr->timer = IP_REASS_MAXAGE;
 
   /* enqueue the new structure to the front of the list */
@@ -522,7 +539,7 @@ ip_reass_chain_frag_into_datagram_and_validate(struct ip_reassdata *ipr, struct 
  * @return NULL if reassembly is incomplete, ? otherwise
  */
 struct pbuf *
-ip4_reass(struct pbuf *p)
+ip4_reass(struct pbuf *p, struct netif *input)
 {
   struct pbuf *r;
   struct ip_hdr *fraghdr;
@@ -577,7 +594,9 @@ ip4_reass(struct pbuf *p)
     /* Check if the incoming fragment matches the one currently present
        in the reassembly buffer. If so, we proceed with copying the
        fragment into the buffer. */
-    if (IP_ADDRESSES_AND_ID_MATCH(&ipr->iphdr, fraghdr)) {
+    if (ipr->input == input &&
+        IPH_PROTO(&ipr->iphdr) == IPH_PROTO(fraghdr) &&
+        IP_ADDRESSES_AND_ID_MATCH(&ipr->iphdr, fraghdr)) {
       LWIP_DEBUGF(IP_REASS_DEBUG, ("ip4_reass: matching previous fragment ID=%"X16_F"\n",
                                    lwip_ntohs(IPH_ID(fraghdr))));
       IPFRAG_STATS_INC(ip_frag.cachehit);
@@ -587,7 +606,7 @@ ip4_reass(struct pbuf *p)
 
   if (ipr == NULL) {
     /* Enqueue a new datagram into the datagram queue */
-    ipr = ip_reass_enqueue_new_datagram(fraghdr, clen);
+    ipr = ip_reass_enqueue_new_datagram(fraghdr, clen, input);
     /* Bail if unable to enqueue */
     if (ipr == NULL) {
       goto nullreturn;

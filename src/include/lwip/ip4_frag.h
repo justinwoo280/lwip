@@ -59,6 +59,7 @@ extern "C" {
  * This is exported because memp needs to know the size.
  */
 struct ip_reassdata {
+  struct netif *input;
   struct ip_reassdata *next;
   struct pbuf *p;
   struct ip_hdr iphdr;
@@ -70,7 +71,8 @@ struct ip_reassdata {
 void ip_reass_init(void);
 void ip_reass_tmr(void);
 void ip_reass_fini(void);
-struct pbuf * ip4_reass(struct pbuf *p);
+void ip_reass_remove_netif(struct netif *netif);
+struct pbuf * ip4_reass(struct pbuf *p, struct netif *input);
 #endif /* IP_REASSEMBLY */
 
 #if IP_FRAG

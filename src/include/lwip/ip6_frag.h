@@ -88,6 +88,7 @@ extern "C" {
  * This is exported because memp needs to know the size.
  */
 struct ip6_reassdata {
+  struct netif *input;
   struct ip6_reassdata *next;
   struct pbuf *p;
   struct ip6_hdr *iphdr; /* pointer to the first (original) IPv6 header */
@@ -114,6 +115,7 @@ struct ip6_reassdata {
 #define ip6_reass_init() /* Compatibility define */
 void ip6_reass_tmr(void);
 void ip6_reass_fini(void);
+void ip6_reass_remove_netif(struct netif *netif);
 struct pbuf *ip6_reass(struct pbuf *p);
 
 #endif /* LWIP_IPV6 && LWIP_IPV6_REASS */
