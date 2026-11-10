@@ -105,9 +105,11 @@ PACK_STRUCT_END
 #  include "arch/epstruct.h"
 #endif
 
+/* RFC 791 identifies a datagram by addresses, protocol and identification. */
 #define IP_ADDRESSES_AND_ID_MATCH(iphdrA, iphdrB)  \
   (ip4_addr_eq(&(iphdrA)->src, &(iphdrB)->src) && \
    ip4_addr_eq(&(iphdrA)->dest, &(iphdrB)->dest) && \
+   IPH_PROTO(iphdrA) == IPH_PROTO(iphdrB) && \
    IPH_ID(iphdrA) == IPH_ID(iphdrB)) ? 1 : 0
 
 /* global variables */
@@ -595,7 +597,6 @@ ip4_reass(struct pbuf *p, struct netif *input)
        in the reassembly buffer. If so, we proceed with copying the
        fragment into the buffer. */
     if (ipr->input == input &&
-        IPH_PROTO(&ipr->iphdr) == IPH_PROTO(fraghdr) &&
         IP_ADDRESSES_AND_ID_MATCH(&ipr->iphdr, fraghdr)) {
       LWIP_DEBUGF(IP_REASS_DEBUG, ("ip4_reass: matching previous fragment ID=%"X16_F"\n",
                                    lwip_ntohs(IPH_ID(fraghdr))));
