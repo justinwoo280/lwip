@@ -199,7 +199,7 @@ ip_reass_free_complete_datagram(struct ip_reassdata *ipr, struct ip_reassdata *p
     ipr->p = iprh->next_pbuf;
     /* Then, copy the original header into it. */
     SMEMCPY(p->payload, &ipr->iphdr, IP_HLEN);
-    icmp_time_exceeded(p, ICMP_TE_FRAG);
+    icmp_time_exceeded_with_netif(p, ICMP_TE_FRAG, ipr->input);
     clen = pbuf_clen(p);
     LWIP_ASSERT("pbufs_freed + clen <= 0xffff", pbufs_freed + clen <= 0xffff);
     pbufs_freed = (u16_t)(pbufs_freed + clen);

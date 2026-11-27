@@ -80,6 +80,7 @@ enum icmp_te_type {
 void icmp_input(struct pbuf *p, struct netif *inp);
 void icmp_dest_unreach(struct pbuf *p, enum icmp_dur_type t);
 void icmp_time_exceeded(struct pbuf *p, enum icmp_te_type t);
+void icmp_time_exceeded_with_netif(struct pbuf *p, enum icmp_te_type t, struct netif *netif);
 
 #endif /* LWIP_IPV4 && LWIP_ICMP */
 

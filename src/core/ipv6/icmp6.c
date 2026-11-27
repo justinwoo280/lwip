@@ -276,6 +276,17 @@ icmp6_time_exceeded_with_addrs(struct pbuf *p, enum icmp6_te_code c,
   icmp6_send_response_with_addrs(p, c, 0, ICMP6_TYPE_TE, src_addr, dest_addr);
 }
 
+/** Send a delayed error on the interface that owns the original datagram.
+ * The addresses, including their zones, describe the original packet. */
+void
+icmp6_time_exceeded_with_addrs_and_netif(struct pbuf *p, enum icmp6_te_code c,
+    const ip6_addr_t *src_addr, const ip6_addr_t *dest_addr, struct netif *netif)
+{
+  LWIP_ASSERT("ICMPv6 reply needs an interface", netif != NULL);
+  icmp6_send_response_with_addrs_and_netif(p, c, 0, ICMP6_TYPE_TE,
+    dest_addr, src_addr, netif);
+}
+
 /**
  * Send an icmpv6 'parameter problem' packet.
  *

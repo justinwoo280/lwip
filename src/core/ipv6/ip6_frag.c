@@ -200,7 +200,7 @@ ip6_reass_free_complete_datagram(struct ip6_reassdata *ipr)
       ip6_addr_copy_from_packed(dest_addr, IPV6_FRAG_DEST(ipr));
       ip6_addr_set_zone(&dest_addr, ipr->dest_zone);
       /* Send the actual ICMP response. */
-      icmp6_time_exceeded_with_addrs(p, ICMP6_TE_FRAG, &src_addr, &dest_addr);
+      icmp6_time_exceeded_with_addrs_and_netif(p, ICMP6_TE_FRAG, &src_addr, &dest_addr, ipr->input);
     }
     clen = pbuf_clen(p);
     LWIP_ASSERT("pbufs_freed + clen <= 0xffff", pbufs_freed + clen <= 0xffff);

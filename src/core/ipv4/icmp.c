@@ -65,7 +65,7 @@
 /* The maximum amount of data from the original packet to return in a dest-unreachable */
 #define ICMP_DEST_UNREACH_DATASIZE 8
 
-static void icmp_send_response(struct pbuf *p, u8_t type, u8_t code);
+static void icmp_send_response(struct pbuf *p, u8_t type, u8_t code, struct netif *netif);
 
 /**
  * Processes ICMP input packets, called from ip_input().
@@ -309,7 +309,7 @@ void
 icmp_dest_unreach(struct pbuf *p, enum icmp_dur_type t)
 {
   MIB2_STATS_INC(mib2.icmpoutdestunreachs);
-  icmp_send_response(p, ICMP_DUR, t);
+  icmp_send_response(p, ICMP_DUR, t, NULL);
 }
 
 #if IP_FORWARD || IP_REASSEMBLY
@@ -324,7 +324,16 @@ void
 icmp_time_exceeded(struct pbuf *p, enum icmp_te_type t)
 {
   MIB2_STATS_INC(mib2.icmpouttimeexcds);
-  icmp_send_response(p, ICMP_TE, t);
+  icmp_send_response(p, ICMP_TE, t, NULL);
+}
+
+/** Send a delayed error on the interface that owns the original datagram. */
+void
+icmp_time_exceeded_with_netif(struct pbuf *p, enum icmp_te_type t, struct netif *netif)
+{
+  LWIP_ASSERT("ICMP reply needs an interface", netif != NULL);
+  MIB2_STATS_INC(mib2.icmpouttimeexcds);
+  icmp_send_response(p, ICMP_TE, t, netif);
 }
 
 #endif /* IP_FORWARD || IP_REASSEMBLY */
@@ -338,13 +347,12 @@ icmp_time_exceeded(struct pbuf *p, enum icmp_te_type t)
  * @param code Code of the ICMP header
  */
 static void
-icmp_send_response(struct pbuf *p, u8_t type, u8_t code)
+icmp_send_response(struct pbuf *p, u8_t type, u8_t code, struct netif *netif)
 {
   struct pbuf *q;
   struct ip_hdr *iphdr;
   struct icmp_hdr *icmphdr;
   ip4_addr_t iphdr_src;
-  struct netif *netif;
   u16_t response_pkt_len;
 
   /* increase number of messages attempted to send */
@@ -382,15 +390,15 @@ icmp_send_response(struct pbuf *p, u8_t type, u8_t code)
   pbuf_copy_partial_pbuf(q, p, response_pkt_len, sizeof(struct icmp_hdr));
 
   ip4_addr_copy(iphdr_src, iphdr->src);
+  if (netif == NULL) {
 #ifdef LWIP_HOOK_IP4_ROUTE_SRC
-  {
     ip4_addr_t iphdr_dst;
     ip4_addr_copy(iphdr_dst, iphdr->dest);
     netif = ip4_route_src(&iphdr_dst, &iphdr_src);
-  }
 #else
-  netif = ip4_route(&iphdr_src);
+    netif = ip4_route(&iphdr_src);
 #endif
+  }
   if (netif != NULL) {
     /* calculate checksum */
     icmphdr->chksum = 0;
