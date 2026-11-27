@@ -69,14 +69,6 @@
 #define IP_REASS_CHECK_OVERLAP 1
 #endif /* IP_REASS_CHECK_OVERLAP */
 
-/** Set to 0 to prevent freeing the oldest datagram when the reassembly buffer is
- * full (IP_REASS_MAX_PBUFS pbufs are enqueued). The code gets a little smaller.
- * Datagrams will be freed by timeout only. Especially useful when MEMP_NUM_REASSDATA
- * is set to 1, so one datagram can be reassembled at a time, only. */
-#ifndef IP_REASS_FREE_OLDEST
-#define IP_REASS_FREE_OLDEST 1
-#endif /* IP_REASS_FREE_OLDEST */
-
 #define IP_REASS_FLAG_LASTFRAG 0x01
 
 #define IP_REASS_VALIDATE_TELEGRAM_FINISHED  1

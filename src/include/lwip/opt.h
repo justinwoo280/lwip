@@ -819,6 +819,11 @@
 #define IP_REASS_MAX_PBUFS              10
 #endif
 
+/** Evict the oldest other datagram when IPv4 or IPv6 reassembly needs room. */
+#if !defined IP_REASS_FREE_OLDEST || defined __DOXYGEN__
+#define IP_REASS_FREE_OLDEST            1
+#endif
+
 /**
  * IP_DEFAULT_TTL: Default value for Time-To-Live used by transport layers.
  */
