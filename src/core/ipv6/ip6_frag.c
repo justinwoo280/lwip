@@ -806,7 +806,6 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
   struct pbuf *rambuf;
 #if !LWIP_NETIF_TX_SINGLE_PBUF
   struct pbuf *newpbuf;
-  u16_t newpbuflen = 0;
   u16_t left_to_copy;
 #endif
   static u32_t identification;
@@ -816,6 +815,9 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
   u16_t fragment_offset = 0;
   u16_t last;
   u16_t poff = IP6_HLEN;
+  err_t err;
+
+  LWIP_ERROR("ip6_frag(): MTU too small", mtu >= IP6_HLEN + IP6_FRAG_HLEN + 8, return ERR_VAL);
 
   identification++;
 
@@ -826,7 +828,7 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
   left = (u16_t)(p->tot_len - IP6_HLEN);
 
   while (left) {
-    last = (left <= nfb);
+    last = (left <= mtu - (IP6_HLEN + IP6_FRAG_HLEN));
 
     /* Fill this fragment */
     cop = last ? left : nfb;
@@ -867,18 +869,17 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
     ip6hdr = (struct ip6_hdr *)rambuf->payload;
     frag_hdr = (struct ip6_frag_hdr *)((u8_t*)rambuf->payload + IP6_HLEN);
 
-    /* Can just adjust p directly for needed offset. */
-    p->payload = (u8_t *)p->payload + poff;
-    p->len = (u16_t)(p->len - poff);
-    p->tot_len = (u16_t)(p->tot_len - poff);
-
+    /* Walk the caller's chain with a cursor; the buffers may be reused. */
     left_to_copy = cop;
     while (left_to_copy) {
       struct pbuf_custom_ref *pcr;
-      newpbuflen = (left_to_copy < p->len) ? left_to_copy : p->len;
+      u16_t newpbuflen;
+      LWIP_ASSERT("p->len >= poff", p->len >= poff);
+      newpbuflen = LWIP_MIN(left_to_copy, (u16_t)(p->len - poff));
       /* Is this pbuf already empty? */
       if (!newpbuflen) {
         p = p->next;
+        poff = 0;
         continue;
       }
       pcr = ip6_frag_alloc_pbuf_custom_ref();
@@ -888,7 +889,8 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
         return ERR_MEM;
       }
       /* Mirror this pbuf, although we might not need all of it. */
-      newpbuf = pbuf_alloced_custom(PBUF_RAW, newpbuflen, PBUF_REF, &pcr->pc, p->payload, newpbuflen);
+      newpbuf = pbuf_alloced_custom(PBUF_RAW, newpbuflen, PBUF_REF, &pcr->pc,
+                                    (u8_t *)p->payload + poff, newpbuflen);
       if (newpbuf == NULL) {
         ip6_frag_free_pbuf_custom_ref(pcr);
         pbuf_free(rambuf);
@@ -904,11 +906,8 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
        */
       pbuf_cat(rambuf, newpbuf);
       left_to_copy = (u16_t)(left_to_copy - newpbuflen);
-      if (left_to_copy) {
-        p = p->next;
-      }
+      poff = (u16_t)(poff + newpbuflen);
     }
-    poff = newpbuflen;
 #endif /* LWIP_NETIF_TX_SINGLE_PBUF */
 
     /* Set headers */
@@ -923,8 +922,7 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
     /* No need for separate header pbuf - we allowed room for it in rambuf
      * when allocated.
      */
-    IP6_FRAG_STATS_INC(ip6_frag.xmit);
-    netif->output_ip6(netif, rambuf, dest);
+    err = netif->output_ip6(netif, rambuf, dest);
 
     /* Unfortunately we can't reuse rambuf - the hardware may still be
      * using the buffer. Instead we free it (and the ensuing chain) and
@@ -934,6 +932,10 @@ ip6_frag(struct pbuf *p, struct netif *netif, const ip6_addr_t *dest)
      */
 
     pbuf_free(rambuf);
+    if (err != ERR_OK) {
+      return err;
+    }
+    IP6_FRAG_STATS_INC(ip6_frag.xmit);
     left = (u16_t)(left - cop);
     fragment_offset = (u16_t)(fragment_offset + cop);
   }

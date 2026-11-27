@@ -788,6 +788,7 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
   u16_t poff = IP_HLEN;
   u16_t tmp;
   int mf_set;
+  err_t err;
 
   original_iphdr = (struct ip_hdr *)p->payload;
   iphdr = original_iphdr;
@@ -796,6 +797,7 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
     return ERR_VAL;
   }
   LWIP_ERROR("ip4_frag(): pbuf too short", p->len >= IP_HLEN, return ERR_VAL);
+  LWIP_ERROR("ip4_frag(): MTU too small", netif->mtu >= IP_HLEN + 8, return ERR_VAL);
 
   /* Save original offset */
   tmp = lwip_ntohs(IPH_OFFSET(iphdr));
@@ -806,8 +808,9 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
   left = (u16_t)(p->tot_len - IP_HLEN);
 
   while (left) {
-    /* Fill this fragment */
-    fragsize = LWIP_MIN(left, (u16_t)(nfb * 8));
+    /* Only non-final fragments must be a multiple of eight bytes. */
+    last = (left <= netif->mtu - IP_HLEN);
+    fragsize = last ? left : (u16_t)(nfb * 8);
 
 #if LWIP_NETIF_TX_SINGLE_PBUF
     rambuf = pbuf_alloc(PBUF_IP, fragsize, PBUF_RAM);
@@ -882,9 +885,6 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
     poff = (u16_t)(poff + newpbuflen);
 #endif /* LWIP_NETIF_TX_SINGLE_PBUF */
 
-    /* Correct header */
-    last = (left <= netif->mtu - IP_HLEN);
-
     /* Set new offset and MF flag */
     tmp = (IP_OFFMASK & (ofo));
     if (!last || mf_set) {
@@ -903,8 +903,7 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
     /* No need for separate header pbuf - we allowed room for it in rambuf
      * when allocated.
      */
-    netif->output(netif, rambuf, dest);
-    IPFRAG_STATS_INC(ip_frag.xmit);
+    err = netif->output(netif, rambuf, dest);
 
     /* Unfortunately we can't reuse rambuf - the hardware may still be
      * using the buffer. Instead we free it (and the ensuing chain) and
@@ -914,6 +913,11 @@ ip4_frag(struct pbuf *p, struct netif *netif, const ip4_addr_t *dest)
      */
 
     pbuf_free(rambuf);
+    if (err != ERR_OK) {
+      MIB2_STATS_INC(mib2.ipfragfails);
+      return err;
+    }
+    IPFRAG_STATS_INC(ip_frag.xmit);
     left = (u16_t)(left - fragsize);
     ofo = (u16_t)(ofo + nfb);
   }
