@@ -19,6 +19,7 @@ unsigned int lwip_port_rand(void) { return (unsigned int)rand(); }
 u32_t sys_now(void) { return 0; }
 
 static unsigned accepted[2], received[2], mismatches;
+static int reject_peer;
 static struct netif interfaces[2];
 static unsigned tags[2]={0,1};
 static err_t output4(struct netif *n, struct pbuf *p, const ip4_addr_t *a) {
@@ -43,6 +44,12 @@ static void receive(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_add
 static void accept_peer(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *a, u16_t port) {
     (void)p; (void)a; (void)port;
     accepted[*(unsigned *)arg]++;
+    if (reject_peer) {
+        /* A single packet must not repeatedly create a rejected peer. */
+        assert(accepted[*(unsigned *)arg]==1);
+        udp_remove(pcb);
+        return;
+    }
     udp_recv(pcb,receive,arg); /* udp_input dispatches the same pbuf after accept */
 }
 static void input(unsigned tag, int v6) {
@@ -90,6 +97,14 @@ static unsigned run(int v6) {
         assert(pcb); udp_bind_netif(pcb,n); assert(udp_bind(pcb,NULL,0)==ERR_OK);
         udp_recv(pcb,accept_peer,&tags[i]);
     }
+    reject_peer=1;
+    input(0,v6); input(1,v6);
+    assert(accepted[0]==1 && accepted[1]==1 && received[0]==0 && received[1]==0);
+    unsigned pcb_count=0;
+    for (struct udp_pcb *pcb=udp_pcbs;pcb;pcb=pcb->next) pcb_count++;
+    assert(pcb_count==2);
+    printf("IPv%d: rejected peers notified once; input returned\n",v6?6:4);
+    memset(accepted,0,sizeof(accepted)); reject_peer=0;
     for (unsigned i=0;i<4;i++) { input(0,v6); input(1,v6); }
     printf("IPv%d: mismatches=%u accepts=%u/%u receives=%u/%u\n",v6?6:4,mismatches,accepted[0],accepted[1],received[0],received[1]);
     unsigned failed=mismatches || accepted[0]!=1 || accepted[1]!=1 || received[0]!=4 || received[1]!=4;

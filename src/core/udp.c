@@ -213,6 +213,7 @@ udp_input(struct pbuf *p, struct netif *inp)
   u16_t src, dest;
   u8_t broadcast;
   u8_t for_us = 0;
+  u8_t pretend_notified = 0;
 
   LWIP_UNUSED_ARG(inp);
 
@@ -460,6 +461,12 @@ again:
       pbuf_free(p);
     }
   } else {
+    /* The accept callback may reject a peer by removing its PCB. The retry
+     * above must only look for a receiver, not notify accept again forever. */
+    if (pretend_notified) {
+      pbuf_free(p);
+      goto end;
+    }
     for (pcb = udp_pcbs; pcb != NULL; pcb = pcb->next) {
       /* check if PCB is pretend for specific netif */
       if ((pcb->pretend_netif_idx != NETIF_NO_INDEX) &&
@@ -476,6 +483,7 @@ again:
           npcb->pretend_netif_idx = pcb->pretend_netif_idx;
           npcb->next = udp_pcbs;
           udp_pcbs = npcb;
+          pretend_notified = 1;
           pcb->recv(pcb->recv_arg, npcb, p, ip_current_dest_addr(), dest);
           goto again;
         }
