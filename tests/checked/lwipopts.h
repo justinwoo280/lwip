@@ -3,8 +3,10 @@
 #include_next <lwipopts.h>
 #undef CHECKSUM_CHECK_IP
 #undef CHECKSUM_CHECK_UDP
+#undef CHECKSUM_CHECK_TCP
 #undef CHECKSUM_CHECK_ICMP
 #define CHECKSUM_CHECK_IP 1
 #define CHECKSUM_CHECK_UDP 1
+#define CHECKSUM_CHECK_TCP 1
 #define CHECKSUM_CHECK_ICMP 1
 #endif

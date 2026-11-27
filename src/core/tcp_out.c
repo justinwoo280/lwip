@@ -1274,7 +1274,7 @@ tcp_output_gso_split(struct tcp_pcb *pcb, struct tcp_seg *seg, u32_t wnd)
   }
 
   if (pcb->gso_mss != 0 &&
-      lwip_ntohl(seg->tcphdr->seqno) - pcb->lastack + seg->len > wnd) {
+      TCP_SEQ_GT(lwip_ntohl(seg->tcphdr->seqno) + seg->len, pcb->lastack + wnd)) {
     u32_t seq = lwip_ntohl(seg->tcphdr->seqno);
     u32_t edge = pcb->lastack + wnd;
 
@@ -1380,8 +1380,10 @@ tcp_output(struct tcp_pcb *pcb)
 
   tcp_output_gso_split(pcb, seg, wnd);
 
-  /* Handle the current segment not fitting within the window */
-  if (lwip_ntohl(seg->tcphdr->seqno) - pcb->lastack + seg->len > wnd) {
+  /* A GSO fallback can split a requeued segment into entirely ACKed prefixes.
+   * Compare sequence numbers with the right edge: subtracting lastack would
+   * turn those prefixes into huge unsigned lengths and block the whole queue. */
+  if (TCP_SEQ_GT(lwip_ntohl(seg->tcphdr->seqno) + seg->len, pcb->lastack + wnd)) {
     /* We need to start the persistent timer when the next unsent segment does not fit
      * within the remaining (could be 0) send window and RTO timer is not running (we
      * have no in-flight data). If window is still too small after persist timer fires,
@@ -1409,7 +1411,7 @@ tcp_output(struct tcp_pcb *pcb)
   }
   /* data available and window allows it to be sent? */
   while (seg != NULL &&
-         lwip_ntohl(seg->tcphdr->seqno) - pcb->lastack + seg->len <= wnd) {
+         TCP_SEQ_LEQ(lwip_ntohl(seg->tcphdr->seqno) + seg->len, pcb->lastack + wnd)) {
     LWIP_ASSERT("RST not expected here!",
                 (TCPH_FLAGS(seg->tcphdr) & TCP_RST) == 0);
     /* Stop sending if the nagle algorithm would prevent it
