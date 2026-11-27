@@ -577,6 +577,18 @@ ip4_reass(struct pbuf *p, struct netif *input)
   if ((ip_reass_pbufcount + clen) > IP_REASS_MAX_PBUFS) {
 #if IP_REASS_FREE_OLDEST
     int needed = ip_reass_pbufcount + clen - IP_REASS_MAX_PBUFS;
+    /* A fragment rejected by validation needs no space. In particular, a
+     * duplicate must not evict another datagram before we discover it. */
+    for (r = ipr != NULL ? ipr->p : NULL; r != NULL; r = iprh->next_pbuf) {
+      iprh = (struct ip_reass_helper *)r->payload;
+      if (offset == iprh->start
+#if IP_REASS_CHECK_OVERLAP
+          || ((offset < iprh->end) && ((u32_t)offset + len > iprh->start))
+#endif
+         ) {
+        goto nullreturn;
+      }
+    }
     if ((clen > IP_REASS_MAX_PBUFS) || (ip_reass_remove_oldest_datagram(ipr, needed) < needed))
 #endif /* IP_REASS_FREE_OLDEST */
     {

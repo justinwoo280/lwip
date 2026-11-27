@@ -412,6 +412,18 @@ ip6_reass(struct pbuf *p)
   /* Check if we are allowed to enqueue more datagrams. */
   if ((ip6_reass_pbufcount + clen) > IP_REASS_MAX_PBUFS) {
 #if IP_REASS_FREE_OLDEST
+    /* Do not evict another datagram for a duplicate or overlapping fragment
+     * that the insertion checks below would reject anyway. */
+    for (q = ipr->p; q != NULL; q = iprh_tmp->next_pbuf) {
+      iprh_tmp = (struct ip6_reass_helper *)q->payload;
+      if (start == iprh_tmp->start
+#if IP_REASS_CHECK_OVERLAP
+          || ((start < iprh_tmp->end) && ((u32_t)start + len > iprh_tmp->start))
+#endif
+         ) {
+        goto nullreturn;
+      }
+    }
     ip6_reass_remove_oldest_datagram(ipr, clen);
     if ((ip6_reass_pbufcount + clen) <= IP_REASS_MAX_PBUFS) {
       /* re-search ipr_prev since it might have been removed */
