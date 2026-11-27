@@ -341,6 +341,14 @@ ip6_reass(struct pbuf *p)
     goto nullreturn;
   }
 
+  /* pbuf lengths include the IPv6 and unfragmentable extension headers. A
+   * valid IPv6 payload can still exceed that 16-bit representation after
+   * reassembly; reject it before concatenation or restoring the IPv6 header. */
+  if ((u32_t)start + len + (u32_t)hdrdiff - IP6_FRAG_HLEN > 0xFFFF - IP6_HLEN) {
+    IP6_FRAG_STATS_INC(ip6_frag.proterr);
+    goto nullreturn;
+  }
+
   /* Look for the datagram the fragment belongs to in the current datagram queue,
    * remembering the previous in the queue for later dequeueing. */
   for (ipr = reassdatagrams, ipr_prev = NULL; ipr != NULL; ipr = ipr->next) {
@@ -602,6 +610,22 @@ ip6_reass(struct pbuf *p)
   if (valid) {
     /* All fragments have been received */
     struct ip6_hdr* iphdr_ptr;
+    u32_t datagram_size = (u32_t)((u8_t *)ipr->p->payload - (u8_t *)ipr->iphdr)
+                         + sizeof(struct ip6_reass_helper) - IP6_FRAG_HLEN;
+
+    /* Check the actual chain as well: fragments can disagree about extension
+     * headers or the final length. Never let pbuf_cat wrap tot_len. */
+    for (q = ipr->p; q != NULL; q = iprh_tmp->next_pbuf) {
+      iprh_tmp = (struct ip6_reass_helper *)q->payload;
+      datagram_size += q->tot_len - sizeof(struct ip6_reass_helper);
+      if (datagram_size > 0xFFFF) {
+        ipr->input = NULL; /* Invalid length, not a reassembly timeout. */
+        ip6_reass_free_complete_datagram(ipr);
+        IP6_FRAG_STATS_INC(ip6_frag.proterr);
+        IP6_FRAG_STATS_INC(ip6_frag.drop);
+        return NULL;
+      }
+    }
 
     /* chain together the pbufs contained within the ip6_reassdata list. */
     iprh = (struct ip6_reass_helper*) ipr->p->payload;
