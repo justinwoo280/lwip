@@ -66,6 +66,8 @@
 #include "lwip/stats.h"
 #include "lwip/sys.h"
 #include "lwip/ip.h"
+#include "lwip/ip4_frag.h"
+#include "lwip/ip6_frag.h"
 #if ENABLE_LOOPBACK
 #if LWIP_NETIF_LOOPBACK_MULTITHREADING
 #include "lwip/tcpip.h"
@@ -829,6 +831,12 @@ netif_remove(struct netif *netif)
     }
   }
 #endif /* !LWIP_SINGLE_NETIF */
+#if LWIP_IPV4 && IP_REASSEMBLY
+  ip_reass_remove_netif(netif);
+#endif
+#if LWIP_IPV6 && LWIP_IPV6_REASS
+  ip6_reass_remove_netif(netif);
+#endif
   mib2_netif_removed(netif);
 #if LWIP_NETIF_REMOVE_CALLBACK
   if (netif->remove_callback) {

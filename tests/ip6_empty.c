@@ -131,8 +131,12 @@ int main(int argc,char **argv) {
     input(1,0x5373,0,80,1); input(5,0x5374,0,80,1);
     input(1,0x5373,80,16,0);
     assert(received==3 && live_allocations==base);
+    /* Interface removal releases only its own IP state, without a timer tick. */
+    input(1,0x5375,0,80,1);
+    netif_remove(&iface);
+    assert(live_allocations==base);
     /* Reinitialization must remain safe after the dropped fragment. */
-    udp_remove(pcb); netif_remove(&iface); lwip_fini();
+    udp_remove(pcb); lwip_fini();
     assert(live_allocations==0);
     lwip_init(); lwip_fini();
     puts("IPv6 reassembly timeout/cleanup PASS");

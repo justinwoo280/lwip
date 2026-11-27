@@ -2,6 +2,7 @@
  * All source datagrams and fragment headers have valid checksums. */
 #include <lwip/init.h>
 #include <lwip/ip.h>
+#include <lwip/ip4_frag.h>
 #include <lwip/netif.h>
 #include <lwip/udp.h>
 #include <lwip/inet_chksum.h>
@@ -147,6 +148,18 @@ static int pressure(int other_netif) {
     if (other_netif) netif_remove(&other);
     finish(); return failed;
 }
+static int remove_interface(void) {
+    struct netif other={0};
+    prepare(); make_datagrams(); add_second(&other);
+    input(&other,17,0x5371,udp_datagram,0,16,1);
+    input(&iface,17,0x5371,udp_datagram,0,16,1);
+    netif_remove(&other);
+    input(&iface,17,0x5371,udp_datagram,16,32,0);
+    for (unsigned i=0;i<=IP_REASS_MAXAGE;i++) ip_reass_tmr();
+    int failed=udp_received!=1 || corrupt!=0 || time_exceeded!=0;
+    printf("interface removal UDP=%u time_exceeded=%u\n",udp_received,time_exceeded);
+    finish(); return failed;
+}
 int main(void) {
     unsigned shared_fail=0,control_fail=0;
     for (unsigned a=0;a<4;a++) for (unsigned b=0;b<4;b++)
@@ -157,7 +170,8 @@ int main(void) {
         shared_fail+=permutation(order,1);
     }
     unsigned pressure_fail=pressure(0)+pressure(1);
+    int removal_fail=remove_interface();
     printf("IPv4 protocol isolation: control_fail=%u/24 shared_id_fail=%u/24 pressure_fail=%u\n",
            control_fail,shared_fail,pressure_fail);
-    return control_fail || shared_fail || pressure_fail ? 1:0;
+    return control_fail || shared_fail || pressure_fail || removal_fail ? 1:0;
 }

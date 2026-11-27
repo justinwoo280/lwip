@@ -151,13 +151,7 @@ ip6_reass_fini(void)
   ip6_reass_pbufcount = 0;
 }
 
-/**
- * Free a datagram (struct ip6_reassdata) and all its pbufs.
- * Updates the total count of enqueued pbufs (ip6_reass_pbufcount),
- * sends an ICMP time exceeded packet.
- *
- * @param ipr datagram to free
- */
+/** Discard pending fragments on interface removal, without sending ICMP. */
 void
 ip6_reass_remove_netif(struct netif *netif)
 {
@@ -172,6 +166,7 @@ ip6_reass_remove_netif(struct netif *netif)
   }
 }
 
+/** Free a datagram and its pbufs, optionally sending ICMP time exceeded. */
 static void
 ip6_reass_free_complete_datagram(struct ip6_reassdata *ipr)
 {
@@ -403,12 +398,7 @@ ip6_reass(struct pbuf *p)
     MEMCPY(&ipr->dest, &ip6_current_header()->dest, sizeof(ipr->dest));
 #endif /* IPV6_FRAG_COPYHEADER */
 #if LWIP_IPV6_SCOPES
-    /* Also store the address zone information.
-     * @todo It is possible that due to netif destruction and recreation, the
-     * stored zones end up resolving to a different interface. In that case, we
-     * risk sending a "time exceeded" ICMP response over the wrong link.
-     * Ideally, netif destruction would clean up matching pending reassembly
-     * structures, but custom zone mappings would make that non-trivial. */
+    /* Also store the address zone information for timeout notifications. */
     ipr->src_zone = ip6_addr_zone(ip6_current_src_addr());
     ipr->dest_zone = ip6_addr_zone(ip6_current_dest_addr());
 #endif /* LWIP_IPV6_SCOPES */
