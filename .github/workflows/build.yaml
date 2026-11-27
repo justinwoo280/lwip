@@ -144,4 +144,4 @@ jobs:
           sudo apt install -y clang
       - name: Build
         run: |
-          make CC=clang ENABLE_STATIC=1 -j`nproc`
+          make check CC=clang PP='clang -E' -j`nproc`

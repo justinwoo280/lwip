@@ -48,11 +48,27 @@ ifeq ($(V),1)
     undefine ECHO_PREFIX
 endif
 
-.PHONY: static shared clean
+.PHONY: static shared check clean
 
 static : $(STATIC_TARGET)
 
 shared : $(SHARED_TARGET)
+
+NATIVE_TESTS=udp_netif ip4_protocol ip6_empty frag_output tcp_gso reass_netif tcp_gso_rexmit ip6_limits frag_duplicate
+check : $(addprefix $(BINDIR)/test-,$(NATIVE_TESTS))
+	$(ECHO_PREFIX) $(BINDIR)/test-udp_netif
+	$(ECHO_PREFIX) $(BINDIR)/test-ip4_protocol
+	$(ECHO_PREFIX) $(BINDIR)/test-ip6_empty 4
+	$(ECHO_PREFIX) $(BINDIR)/test-ip6_empty 5
+	$(ECHO_PREFIX) $(BINDIR)/test-frag_output
+	$(ECHO_PREFIX) $(BINDIR)/test-tcp_gso
+	$(ECHO_PREFIX) $(BINDIR)/test-reass_netif
+	$(ECHO_PREFIX) $(BINDIR)/test-tcp_gso_rexmit
+	$(ECHO_PREFIX) $(BINDIR)/test-ip6_limits
+	$(ECHO_PREFIX) $(BINDIR)/test-frag_duplicate
+
+$(BINDIR)/test-% : tests/%.c $(STATIC_TARGET)
+	$(ECHO_PREFIX) $(CC) $(CCFLAGS) -UNDEBUG -o $@ $< $(STATIC_TARGET) $(LDFLAGS)
 
 clean :
 	$(ECHO_PREFIX) $(RM) -rf $(BINDIR) $(BUILDDIR)
