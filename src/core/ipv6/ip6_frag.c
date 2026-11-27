@@ -317,6 +317,11 @@ ip6_reass(struct pbuf *p)
   frag_hdr = (struct ip6_frag_hdr *) p->payload;
 
   clen = pbuf_clen(p);
+  /* No amount of eviction can make this fragment fit. */
+  if (clen > IP_REASS_MAX_PBUFS) {
+    IP6_FRAG_STATS_INC(ip6_frag.memerr);
+    goto nullreturn;
+  }
 
   offset = lwip_ntohs(frag_hdr->_fragment_offset);
 

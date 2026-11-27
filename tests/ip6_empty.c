@@ -126,6 +126,11 @@ int main(int argc,char **argv) {
     /* Also complete a datagram with its last fragment arriving first. */
     input(1,0x5372,80,16,0); input(1,0x5372,0,80,1);
     assert(received==2 && live_allocations==base);
+    /* A fragment that cannot fit even an empty budget must not evict another
+     * datagram that only needs its last fragment. */
+    input(1,0x5373,0,80,1); input(5,0x5374,0,80,1);
+    input(1,0x5373,80,16,0);
+    assert(received==3 && live_allocations==base);
     /* Reinitialization must remain safe after the dropped fragment. */
     udp_remove(pcb); netif_remove(&iface); lwip_fini();
     assert(live_allocations==0);

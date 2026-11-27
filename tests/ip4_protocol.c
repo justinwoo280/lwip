@@ -94,7 +94,7 @@ static void make_datagrams(void) {
     sum=inet_chksum(icmp_datagram,sizeof(icmp_datagram)); memcpy(icmp_datagram+2,&sum,2);
     assert(inet_chksum(icmp_datagram,sizeof(icmp_datagram))==0);
 }
-static void input(unsigned proto,unsigned id,const uint8_t *payload,
+static void input(struct netif *n,unsigned proto,unsigned id,const uint8_t *payload,
                   unsigned offset,unsigned length,int more) {
     uint8_t bytes[128]={0};
     assert(offset%8==0 && (!more || length%8==0) && 20+length<=sizeof(bytes));
@@ -106,14 +106,14 @@ static void input(unsigned proto,unsigned id,const uint8_t *payload,
     assert(inet_chksum(bytes,20)==0 && read16(bytes+2)==20+length);
     struct pbuf *p=pbuf_alloc(PBUF_RAW,(u16_t)(20+length),PBUF_RAM); assert(p);
     assert(pbuf_take(p,bytes,(u16_t)(20+length))==ERR_OK);
-    assert(ip_input(p,&iface)==ERR_OK);
+    assert(ip_input(p,n)==ERR_OK);
 }
 static int permutation(const unsigned order[4],int shared_id) {
     prepare(); make_datagrams();
     for (unsigned i=0;i<4;i++) {
         unsigned item=order[i], proto=item<2?17:1;
         unsigned id=(shared_id || item<2)?0x5371:0x5372;
-        input(proto,id,item<2?udp_datagram:icmp_datagram,
+        input(&iface,proto,id,item<2?udp_datagram:icmp_datagram,
               item%2?16:0,item%2?32:16,item%2==0);
     }
     int failed=udp_received!=1 || echo_received!=1 || corrupt!=0;
@@ -122,18 +122,29 @@ static int permutation(const unsigned order[4],int shared_id) {
                        udp_received,echo_received,corrupt);
     finish(); return failed;
 }
-static int pressure(void) {
+static void add_second(struct netif *n) {
+    assert(netif_add(n,&destination,netif_ip4_netmask(&iface),netif_ip4_gw(&iface),NULL,init_if,ip_input));
+    netif_set_up(n); netif_set_link_up(n);
+}
+static int pressure(int other_netif) {
     uint8_t pending_udp[80]={0};
+    struct netif other={0};
     prepare(); make_datagrams();
+    if (other_netif) add_second(&other);
     be16(pending_udp,40000); be16(pending_udp+2,1234); be16(pending_udp+4,sizeof(pending_udp));
     /* An incomplete UDP datagram fills the four-pbuf budget. An unrelated
-     * ICMP datagram with the same addresses/ID must be eligible to evict it. */
-    for (unsigned offset=0;offset<64;offset+=16) input(17,0x5371,pending_udp,offset,16,1);
-    input(1,0x5371,icmp_datagram,0,16,1);
-    input(1,0x5371,icmp_datagram,16,32,0);
-    int failed=udp_received!=0 || echo_received!=1 || corrupt!=0 || time_exceeded!=1;
-    printf("pressure UDP=%u echo=%u corrupt=%u time_exceeded=%u\n",
-           udp_received,echo_received,corrupt,time_exceeded);
+     * datagram differs only in protocol or only in input interface. */
+    for (unsigned offset=0;offset<64;offset+=16) input(&iface,17,0x5371,pending_udp,offset,16,1);
+    struct netif *n=other_netif?&other:&iface;
+    unsigned proto=other_netif?17:1;
+    uint8_t *data=other_netif?udp_datagram:icmp_datagram;
+    input(n,proto,0x5371,data,0,16,1); input(n,proto,0x5371,data,16,32,0);
+    unsigned evict=IP_REASS_FREE_OLDEST!=0;
+    int failed=udp_received!=(other_netif?evict:0) || echo_received!=(other_netif?0:evict) ||
+               corrupt!=0 || time_exceeded!=evict;
+    printf("pressure (%s) UDP=%u echo=%u corrupt=%u time_exceeded=%u\n",
+           other_netif?"interface":"protocol",udp_received,echo_received,corrupt,time_exceeded);
+    if (other_netif) netif_remove(&other);
     finish(); return failed;
 }
 int main(void) {
@@ -145,7 +156,7 @@ int main(void) {
         control_fail+=permutation(order,0);
         shared_fail+=permutation(order,1);
     }
-    unsigned pressure_fail=pressure();
+    unsigned pressure_fail=pressure(0)+pressure(1);
     printf("IPv4 protocol isolation: control_fail=%u/24 shared_id_fail=%u/24 pressure_fail=%u\n",
            control_fail,shared_fail,pressure_fail);
     return control_fail || shared_fail || pressure_fail ? 1:0;

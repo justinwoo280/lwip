@@ -102,7 +102,7 @@ PACK_STRUCT_END
   (ip4_addr_eq(&(iphdrA)->src, &(iphdrB)->src) && \
    ip4_addr_eq(&(iphdrA)->dest, &(iphdrB)->dest) && \
    IPH_PROTO(iphdrA) == IPH_PROTO(iphdrB) && \
-   IPH_ID(iphdrA) == IPH_ID(iphdrB)) ? 1 : 0
+   IPH_ID(iphdrA) == IPH_ID(iphdrB))
 
 /* global variables */
 static struct ip_reassdata *reassdatagrams;
@@ -248,15 +248,14 @@ ip_reass_remove_netif(struct netif *netif)
 #if IP_REASS_FREE_OLDEST
 /**
  * Free the oldest datagram to make room for enqueueing new fragments.
- * The datagram 'fraghdr' belongs to is not freed!
+ * The queue that will receive the current fragment is not freed.
  *
- * @param fraghdr IP header of the current fragment
- * @param pbufs_needed number of pbufs needed to enqueue
- *        (used for freeing other datagrams if not enough space)
+ * @param keep queue to preserve, or NULL for a new datagram
+ * @param pbufs_needed number of pbufs to free
  * @return the number of pbufs freed
  */
 static int
-ip_reass_remove_oldest_datagram(struct ip_hdr *fraghdr, int pbufs_needed)
+ip_reass_remove_oldest_datagram(const struct ip_reassdata *keep, int pbufs_needed)
 {
   /* @todo Can't we simply remove the last datagram in the
    *       linked list behind reassdatagrams?
@@ -265,8 +264,7 @@ ip_reass_remove_oldest_datagram(struct ip_hdr *fraghdr, int pbufs_needed)
   int pbufs_freed = 0, pbufs_freed_current;
   int other_datagrams;
 
-  /* Free datagrams until being allowed to enqueue 'pbufs_needed' pbufs,
-   * but don't free the datagram that 'fraghdr' belongs to! */
+  /* Free only as many other datagrams as needed. */
   do {
     oldest = NULL;
     prev = NULL;
@@ -274,8 +272,7 @@ ip_reass_remove_oldest_datagram(struct ip_hdr *fraghdr, int pbufs_needed)
     other_datagrams = 0;
     r = reassdatagrams;
     while (r != NULL) {
-      if (!IP_ADDRESSES_AND_ID_MATCH(&r->iphdr, fraghdr)) {
-        /* Not the same datagram as fraghdr */
+      if (r != keep) {
         other_datagrams++;
         if (oldest == NULL) {
           oldest = r;
@@ -303,22 +300,20 @@ ip_reass_remove_oldest_datagram(struct ip_hdr *fraghdr, int pbufs_needed)
 /**
  * Enqueues a new fragment into the fragment queue
  * @param fraghdr points to the new fragments IP hdr
- * @param clen number of pbufs needed to enqueue (used for freeing other datagrams if not enough space)
+ * @param input interface receiving the fragment
  * @return A pointer to the queue location into which the fragment was enqueued
  */
 static struct ip_reassdata *
-ip_reass_enqueue_new_datagram(struct ip_hdr *fraghdr, int clen, struct netif *input)
+ip_reass_enqueue_new_datagram(struct ip_hdr *fraghdr, struct netif *input)
 {
   struct ip_reassdata *ipr;
-#if ! IP_REASS_FREE_OLDEST
-  LWIP_UNUSED_ARG(clen);
-#endif
 
   /* No matching previous fragment found, allocate a new reassdata struct */
   ipr = (struct ip_reassdata *)memp_malloc(MEMP_REASSDATA);
   if (ipr == NULL) {
 #if IP_REASS_FREE_OLDEST
-    if (ip_reass_remove_oldest_datagram(fraghdr, clen) >= clen) {
+    /* The pbuf budget was already checked. Only one queue entry is needed. */
+    if (ip_reass_remove_oldest_datagram(NULL, 1) > 0) {
       ipr = (struct ip_reassdata *)memp_malloc(MEMP_REASSDATA);
     }
     if (ipr == NULL)
@@ -564,26 +559,7 @@ ip4_reass(struct pbuf *p, struct netif *input)
   }
   len = (u16_t)(len - hlen);
 
-  /* Check if we are allowed to enqueue more datagrams. */
-  clen = pbuf_clen(p);
-  if ((ip_reass_pbufcount + clen) > IP_REASS_MAX_PBUFS) {
-#if IP_REASS_FREE_OLDEST
-    if (!ip_reass_remove_oldest_datagram(fraghdr, clen) ||
-        ((ip_reass_pbufcount + clen) > IP_REASS_MAX_PBUFS))
-#endif /* IP_REASS_FREE_OLDEST */
-    {
-      /* No datagram could be freed and still too many pbufs enqueued */
-      LWIP_DEBUGF(IP_REASS_DEBUG, ("ip4_reass: Overflow condition: pbufct=%d, clen=%d, MAX=%d\n",
-                                   ip_reass_pbufcount, clen, IP_REASS_MAX_PBUFS));
-      IPFRAG_STATS_INC(ip_frag.memerr);
-      /* @todo: send ICMP time exceeded here? */
-      /* drop this pbuf */
-      goto nullreturn;
-    }
-  }
-
-  /* Look for the datagram the fragment belongs to in the current datagram queue,
-   * remembering the previous in the queue for later dequeueing. */
+  /* Identify the queue before eviction, including its input interface. */
   for (ipr = reassdatagrams; ipr != NULL; ipr = ipr->next) {
     /* Check if the incoming fragment matches the one currently present
        in the reassembly buffer. If so, we proceed with copying the
@@ -597,9 +573,21 @@ ip4_reass(struct pbuf *p, struct netif *input)
     }
   }
 
+  clen = pbuf_clen(p);
+  if ((ip_reass_pbufcount + clen) > IP_REASS_MAX_PBUFS) {
+#if IP_REASS_FREE_OLDEST
+    int needed = ip_reass_pbufcount + clen - IP_REASS_MAX_PBUFS;
+    if ((clen > IP_REASS_MAX_PBUFS) || (ip_reass_remove_oldest_datagram(ipr, needed) < needed))
+#endif /* IP_REASS_FREE_OLDEST */
+    {
+      IPFRAG_STATS_INC(ip_frag.memerr);
+      goto nullreturn;
+    }
+  }
+
   if (ipr == NULL) {
     /* Enqueue a new datagram into the datagram queue */
-    ipr = ip_reass_enqueue_new_datagram(fraghdr, clen, input);
+    ipr = ip_reass_enqueue_new_datagram(fraghdr, input);
     /* Bail if unable to enqueue */
     if (ipr == NULL) {
       goto nullreturn;
