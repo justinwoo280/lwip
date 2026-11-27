@@ -566,10 +566,13 @@ void *hev_calloc (size_t nmemb, size_t size);
 
 /**
  * LWIP_HOOK_TCP_OUT_ADD_TCPOPTS: Hook for adding custom options to outgoing
- * tcp segments. Used to tag outgoing packets with the GSO size of the pcb.
+ * tcp segments. Tag only packets that actually require segmentation; in
+ * particular a wire-sized retry must not request the offload that just failed.
  */
 #define LWIP_HOOK_TCP_OUT_ADD_TCPOPTS(p, hdr, pcb, opts) \
-    ((p)->gso_size = (pcb) ? (pcb)->gso_mss : 0, (opts))
+    ((p)->gso_size = ((pcb) && (pcb)->state != LISTEN && (pcb)->gso_mss && \
+                      (p)->tot_len > (u32_t)TCPH_HDRLEN_BYTES(hdr) + (pcb)->gso_mss) \
+                     ? (pcb)->gso_mss : 0, (opts))
 
 #if !NO_SYS
 void sys_check_core_locking(void);
